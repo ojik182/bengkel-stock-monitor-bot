@@ -38,7 +38,8 @@ def main():
     # Get configuration from environment
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     spreadsheet_id = os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID')
-    credentials_path = os.getenv('GOOGLE_SERVICE_ACCOUNT_KEY', 'credentials.json')
+    credentials_path = 'credentials.json'
+    credentials_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_KEY')
 
     # Validate required configuration
     if not bot_token:
@@ -50,16 +51,19 @@ def main():
         logger.error("GOOGLE_SHEETS_SPREADSHEET_ID is not set!")
         return
 
-    # Check if credentials file exists
-    if not os.path.exists(credentials_path):
-        logger.warning(f"Credentials file not found: {credentials_path}")
+    # Determine if we have credentials (file or env var)
+    has_credentials_file = os.path.exists(credentials_path)
+    has_credentials_env = bool(credentials_json)
+
+    if not has_credentials_file and not has_credentials_env:
+        logger.warning("No credentials found (no file, no env var).")
         logger.warning("Using mock data mode for demonstration...")
 
     # Initialize Google Sheets client
-    use_mock = not os.path.exists(credentials_path)
+    use_mock = not has_credentials_file and not has_credentials_env
 
     if use_mock:
-        logger.warning("Credentials file not found. Using MOCK data mode.")
+        logger.warning("No credentials found. Using MOCK data mode.")
         sheets_client = MockSheetsClient(
             spreadsheet_id=spreadsheet_id
         )
@@ -68,7 +72,7 @@ def main():
         try:
             sheets_client = SheetsClient(
                 spreadsheet_id=spreadsheet_id,
-                credentials_path=credentials_path
+                credentials_path=credentials_path if has_credentials_file else None
             )
             logger.info("Google Sheets client initialized successfully")
         except Exception as e:
