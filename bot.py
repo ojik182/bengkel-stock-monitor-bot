@@ -5,8 +5,8 @@ Main entry point
 
 import os
 import logging
-import asyncio
-from pathlib import Path
+import json
+import tempfile
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -38,47 +38,54 @@ def main():
     # Get configuration from environment
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     spreadsheet_id = os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID')
-    credentials_path = 'credentials.json'
     credentials_json = os.getenv('GOOGLE_SERVICE_ACCOUNT_KEY')
 
     # Validate required configuration
     if not bot_token:
         logger.error("TELEGRAM_BOT_TOKEN is not set in environment variables!")
-        logger.error("Please create a .env file with your bot token.")
         return
 
     if not spreadsheet_id:
         logger.error("GOOGLE_SHEETS_SPREADSHEET_ID is not set!")
         return
 
-    # Determine if we have credentials (file or env var)
-    has_credentials_file = os.path.exists(credentials_path)
-    has_credentials_env = bool(credentials_json)
+    # Determine credentials approach
+    credentials_path = None
+    
+    if credentials_json and credentials_json.startswith('{'):
+        # JSON string content - write to temp file for google-auth
+        try:
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+            json.dump(json.loads(credentials_json), temp_file)
+            temp_file.close()
+            credentials_path = temp_file.name
+            logger.info("Using credentials from GOOGLE_SERVICE_ACCOUNT_KEY env var")
+        except Exception as e:
+            logger.error(f"Failed to parse credentials JSON: {e}")
+            credentials_path = None
 
-    if not has_credentials_file and not has_credentials_env:
-        logger.warning("No credentials found (no file, no env var).")
-        logger.warning("Using mock data mode for demonstration...")
+    elif credentials_json and os.path.exists(credentials_json):
+        # It's a file path
+        credentials_path = credentials_json
+        logger.info(f"Using credentials from file: {credentials_path}")
+    
+    else:
+        logger.warning("No valid credentials found. Using MOCK data mode.")
 
     # Initialize Google Sheets client
-    use_mock = not has_credentials_file and not has_credentials_env
-
-    if use_mock:
-        logger.warning("No credentials found. Using MOCK data mode.")
-        sheets_client = MockSheetsClient(
-            spreadsheet_id=spreadsheet_id
-        )
-        logger.info("Google Sheets client initialized (MOCK mode)")
-    else:
+    if credentials_path:
         try:
             sheets_client = SheetsClient(
                 spreadsheet_id=spreadsheet_id,
-                credentials_path=credentials_path if has_credentials_file else None
+                credentials_path=credentials_path
             )
             logger.info("Google Sheets client initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Google Sheets client: {e}")
-            logger.error("Falling back to MOCK data mode.")
+            logger.warning("Falling back to MOCK data mode.")
             sheets_client = MockSheetsClient(spreadsheet_id=spreadsheet_id)
+    else:
+        sheets_client = MockSheetsClient(spreadsheet_id=spreadsheet_id)
 
     # Initialize handlers
     handlers = BotHandlers(sheets_client)
@@ -106,11 +113,11 @@ def main():
     logger.info("Bengkel Stock Monitor Bot Starting...")
     logger.info("=" * 50)
     logger.info(f"Spreadsheet ID: {spreadsheet_id}")
-    logger.info(f"Credentials: {credentials_path}")
+    logger.info(f"Credentials: {'file' if credentials_path else 'mock'}")
     logger.info("Commands: /start, /help, /stats, /cari, /stok, /alerts, /transaksi")
     logger.info("=" * 50)
 
-    # Start polling with error handling
+    # Start polling
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
