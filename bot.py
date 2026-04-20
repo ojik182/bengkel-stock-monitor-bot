@@ -5,6 +5,7 @@ Main entry point
 
 import os
 import logging
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,6 +28,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+
+def run_health_server():
+    """Run a simple health check server on port 8080"""
+    try:
+        from aiohttp import web
+        
+        async def health(request):
+            return web.Response(text="OK")
+        
+        app = web.Application()
+        app.router.add_get('/health', health)
+        
+        logger.info("Starting health check server on port 8080...")
+        web.run_app(app, host='0.0.0.0', port=8080, print=None)
+    except Exception as e:
+        logger.error(f"Health server error: {e}")
 
 
 def main():
@@ -52,7 +70,6 @@ def main():
     # Check if credentials file exists
     if not os.path.exists(credentials_path):
         logger.warning(f"Credentials file not found: {credentials_path}")
-        logger.warning("Please download your service account JSON and save it as credentials.json")
         logger.warning("Using mock data mode for demonstration...")
 
     # Initialize Google Sheets client
@@ -105,6 +122,10 @@ def main():
     logger.info(f"Credentials: {credentials_path}")
     logger.info("Commands: /start, /help, /stats, /cari, /stok, /alerts, /transaksi")
     logger.info("=" * 50)
+
+    # Start health check server in background thread
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
 
     # Start polling
     application.run_polling(allowed_updates=Update.ALL_TYPES)
